@@ -1,0 +1,66 @@
+-- Created Storage Account 'olistdsaccount' and inside that the Container 'olistdata'
+-- Created Azure Data Lake, there are three folders in 'olistdata' -> bronze, silver and gold
+-- From different sources like Github url and Sql table, stored the data to Azure Data Factory using Pipeline to bronze
+-- Using notebook in Databrick, I have transformed the bronze data and stored it in silver in 'PARQUET' format
+
+
+-- Finally, using Azure Synapse for converting data silver to gold
+-- Read data from silver
+
+SELECT
+    *
+FROM
+    OPENROWSET(
+        BULK 'https://olistdsaccount.dfs.core.windows.net/olistdata/silver/',
+        FORMAT = 'PARQUET'
+    ) AS [result]
+
+
+
+-- Created view for all the data where order_status='delivered'
+
+CREATE SCHEMA gold
+
+CREATE VIEW gold.final2
+AS
+SELECT
+    *
+FROM
+    OPENROWSET(
+        BULK 'https://olistdsaccount.dfs.core.windows.net/olistdata/silver/',
+        FORMAT = 'PARQUET'
+    ) AS [result2]
+WHERE order_status='delivered'
+
+SELECT * FROM gold.final2
+
+
+
+-- Finally, store the data into gold
+
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'your-password';
+CREATE DATABASE SCOPED CREDENTIAL {admin_username} WITH IDENTITY = 'Managed Identity';
+SELECT * FROM sys.database_credentials;
+
+CREATE EXTERNAL FILE FORMAT extfileformat WITH (
+    FORMAT_TYPE = PARQUET,
+    DATA_COMPRESSION = 'org.apache.hadoop.io.compress.SnappyCodec'
+);
+
+CREATE EXTERNAL DATA SOURCE goldlayer WITH (
+    LOCATION = 'https://olistdsaccount.dfs.core.windows.net/olistdata/gold/',
+    CREDENTIAL = admin_username
+);
+
+CREATE EXTERNAL TABLE gold.finaltable WITH (
+        LOCATION = 'Serving',
+        DATA_SOURCE = goldlayer,
+        FILE_FORMAT = extfileformat
+) AS
+SELECT * FROM gold.final2;
+
+
+
+-- Testing gold -> retrieving data from gold
+
+SELECT * FROM gold.final2;
